@@ -175,6 +175,7 @@ class IKSolver(ABC):
         ets: "rtb.ETS",
         Tep: Union[SE3, np.ndarray],
         q0: Union[ArrayLike, None] = None,
+        delta_limits: np.ndarray = None,
     ) -> IKSolution:
         """
         Solves the IK problem
@@ -190,6 +191,10 @@ class IKSolver(ABC):
             The desired end-effector pose
         q0
             The initial joint coordinate vector
+        delta_limits
+            The delta limits for the joints. Should be a (2, nj) vector. First row is lower
+            limits and the second row is upper limits. Lower limits should be <= 0 and upper
+            limits should be >= 0.
 
         Returns
         -------
@@ -289,11 +294,12 @@ class IKSolver(ABC):
             )
 
         else:
-            sol = self._solve(ets, methTep, q0)
+            sol = self._solve(ets, methTep, q0, delta_limits)
 
         return sol
 
-    def _solve(self, ets: "rtb.ETS", Tep: np.ndarray, q0: np.ndarray) -> IKSolution:
+    def _solve(self, ets: "rtb.ETS", Tep: np.ndarray, q0: np.ndarray,
+               delta_limits: np.ndarray) -> IKSolution:
         # Iteration count
         i = 0
         total_i = 0
@@ -310,12 +316,22 @@ class IKSolver(ABC):
             q = q0[search].copy()
             i = 0
 
+            lb, ub = None, None
+            if delta_limits is not None:
+                lb = delta_limits[0]
+                ub = delta_limits[1]
+
             while i < self.ilimit:
                 i += 1
 
                 # Attempt a step
                 try:
-                    E, q[ets.jindices] = self.step(ets, Tep, q)
+                    E, q[ets.jindices] = self.step(ets, Tep, q, lb, ub)
+
+                    if delta_limits is not None:
+                        cumulative_delta = q - q0[search]
+                        lb = delta_limits[0] - cumulative_delta
+                        ub = delta_limits[1] - cumulative_delta
 
                 except np.linalg.LinAlgError:
                     # Abandon search and try again
@@ -401,7 +417,8 @@ class IKSolver(ABC):
 
     @abstractmethod
     def step(
-        self, ets: "rtb.ETS", Tep: np.ndarray, q: np.ndarray
+        self, ets: "rtb.ETS", Tep: np.ndarray, q: np.ndarray, lb: np.ndarray = None,
+            ub: np.ndarray = None
     ) -> Tuple[float, np.ndarray]:
         """
         Abstract step method
@@ -1324,6 +1341,7 @@ class IK_QP(IKSolver):
         km: float = 0.0,
         ps: float = 0.0,
         pi: Union[np.ndarray, float] = 0.3,
+        solver: str = "quadprog",
         **kwargs,
     ):
         if not _qp:  # pragma: nocover
@@ -1350,6 +1368,9 @@ class IK_QP(IKSolver):
         self.ps = ps
         self.pi = pi
 
+        assert solver in ["proxqp", "quadprog"]
+        self.solver = solver
+
         self.name = "QP)"
 
         if self.kq > 0.0:
@@ -1359,7 +1380,8 @@ class IK_QP(IKSolver):
             self.name += " Jm"
 
     def step(
-        self, ets: "rtb.ETS", Tep: np.ndarray, q: np.ndarray
+        self, ets: "rtb.ETS", Tep: np.ndarray, q: np.ndarray, lb: np.ndarray = None,
+            ub: np.ndarray = None
     ) -> Tuple[float, np.ndarray]:
         r"""
         Performs a single iteration of the Gauss-Newton optimisation method
@@ -1501,7 +1523,9 @@ class IK_QP(IKSolver):
         else:
             c = np.zeros(ets.n + 6)
 
-        xd = qp.solve_qp(Q, c, Ain, bin, Aeq, beq, lb=None, ub=None, solver="quadprog")
+        lb = np.concatenate((lb, -np.inf * np.ones(6)))
+        ub = np.concatenate((ub, np.inf * np.ones(6)))
+        xd = qp.solve_qp(Q, c, Ain, bin, Aeq, beq, lb=lb, ub=ub, solver=self.solver)
 
         if xd is None:  # pragma: nocover
             raise np.linalg.LinAlgError("QP Unsolvable")
