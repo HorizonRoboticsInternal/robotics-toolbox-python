@@ -245,7 +245,7 @@
 
 
         <joint name="gripperStator" type="fixed">
-            <origin rpy="0 0 0" xyz="0.1 0.0 0.0"/>
+            <origin rpy="0 0 0" xyz="0.051 0.0 0.0"/>
             <parent link="link06"/>
             <child link="gripperStator"/>
         </joint>
@@ -274,10 +274,41 @@
             </inertial>
         </link>
 
+        <joint name="jointGripper" type="revolute">
+            <origin rpy="0 0 0" xyz="0.049 0.0 0"/>
+            <parent link="gripperStator"/>
+            <child link="gripperMover"/>
+            <axis xyz="0 1 0"/>
+            <dynamics damping="${jointDamping}" friction="${jointFriction}"/>
+            <limit effort="${torqueMax}" velocity="${velocityMax}" lower="${Gripper_PositionMin}" upper="${Gripper_PositionMax}"/>
+        </joint>
+
+        <link name="gripperMover">
+            <visual>
+                <origin rpy="0 0 0" xyz="0 0 0"/>
+                <geometry>
+                    <mesh filename="package://z1_description/meshes/z1_GripperMover.dae" scale="1 1 1"/>
+                </geometry>
+            </visual>
+            <inertial>
+                <origin rpy="0 0 0" xyz="${GripperMover_ComX} ${GripperMover_ComY} ${GripperMover_ComZ}"/>
+                <mass value="${GripperMover_Mass}"/>
+                <inertia
+                    ixx="${GripperMover_Ixx}" ixy="${GripperMover_Ixy}" ixz="${GripperMover_Ixz}"
+                    iyy="${GripperMover_Iyy}" iyz="${GripperMover_Iyz}"
+                    izz="${GripperMover_Izz}"/> 
+            </inertial>
+        </link>
+
+        <xacro:motorTransmission name="Gripper"/>
+
         <gazebo reference="gripperStator">
             <self_collide>true</self_collide>
         </gazebo>
 
+        <gazebo reference="gripperMover">
+            <self_collide>true</self_collide>
+        </gazebo>
 
 
     <xacro:motorTransmission name="1"/>
